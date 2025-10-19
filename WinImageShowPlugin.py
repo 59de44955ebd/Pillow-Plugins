@@ -24,6 +24,7 @@ __all__ = []
 from ctypes import *
 from ctypes.wintypes import *
 import io
+import sys
 from PIL import Image
 
 # Config
@@ -159,13 +160,13 @@ WS_OVERLAPPEDWINDOW = 13565952
 WS_VISIBLE = 268435456
 
 
-class WinImageShow():
+class WinImageViewer():
 
-    def __init__(self, img, window_title):
+    def show(self, image, title = None, **options):
 
-        self.img = img
-        self.h_bitmap = self._image_to_hbitmap(img)
-        self.img_ratio = img.width / img.height
+        self.img = image
+        self.h_bitmap = self._image_to_hbitmap(image)
+        self.img_ratio = image.width / image.height
 
         # Show image centered and resized to window while keeping its aspect ratio
         def _on_WM_PAINT(hwnd, wparam, lparam):
@@ -203,6 +204,7 @@ class WinImageShow():
             filename = file_buffer[:].split("\0", 1)[0]
             try:
                 img = Image.open(filename)
+                gdi32.DeleteObject(self.h_bitmap)
                 self.h_bitmap = self._image_to_hbitmap(img)
                 self.img = img
                 self.img_ratio = img.width / img.height
@@ -213,16 +215,16 @@ class WinImageShow():
                 return 0
 
         def _window_proc_callback(hwnd, msg, wparam, lparam):
-            if msg == WM_PAINT:
-                return _on_WM_PAINT(hwnd, wparam, lparam)
+            if msg == WM_CLOSE:
+                user32.PostMessageW(self.hwnd, WM_QUIT, 0, 0)
             elif msg == WM_DROPFILES:
                 return _on_WM_DROPFILES(hwnd, wparam, lparam)
-            elif msg == WM_CLOSE:
-                user32.PostMessageW(self.hwnd, WM_QUIT, 0, 0)
             elif msg == WM_GETMINMAXINFO:
                 mmi = cast(lparam, POINTER(MINMAXINFO))
                 mmi.contents.ptMinTrackSize = POINT(MIN_WIN_SIZE, MIN_WIN_SIZE)
                 return 0
+            elif msg == WM_PAINT:
+                return _on_WM_PAINT(hwnd, wparam, lparam)
 
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
@@ -238,7 +240,7 @@ class WinImageShow():
         self.hwnd = user32.CreateWindowExW(
             0,
             wndclass.lpszClassName,
-            window_title,
+            title or f"{getattr(image, 'filename', 'Pillow Image')} - {image.mode} - {image.width} x {image.height}",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             *self._get_win_rect_for_image(img),
             None, None, None, None
@@ -250,6 +252,8 @@ class WinImageShow():
             user32.DispatchMessageW(byref(msg))
         user32.DestroyWindow(self.hwnd)
         gdi32.DeleteObject(self.h_bitmap)
+
+        return True
 
     def _get_win_rect_for_image(self, img):
         """
@@ -334,12 +338,24 @@ class WinImageShow():
         return h_bitmap
 
 
-# This overwrites the Image.show() method with our custom implementation
-import sys
 if sys.platform == "win32":
-    def _show(img, **options):
-        WinImageShow(img, options.get("title", None) or (f"{getattr(img, 'filename', 'Pillow Image')} - {img.mode} - {img.width} x {img.height}"))
+
+    ########################################
+    # This is the official way to register a custom viewer,
+    # but it's very slow, since just importing ImageShow
+    # takes a loooong time.
+    ########################################
+#    from PIL import ImageShow
+#    ImageShow.register(WinImageViewer(), 0)
+
+    ########################################
+    # Overwriting Image.show() like this instead,
+    # without importing ImageShow, is lightning fast.
+    ########################################
+    def _show(image, **options):
+        WinImageViewer().show(image, **options)
     setattr(Image, "_show", _show)
+
 
 if __name__ == "__main__":
     img = Image.open("_test_files/test.png")
