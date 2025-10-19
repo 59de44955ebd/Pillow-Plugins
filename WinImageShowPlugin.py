@@ -26,6 +26,9 @@ from ctypes.wintypes import *
 import io
 from PIL import Image
 
+# Config
+MIN_WIN_SIZE = 240
+
 ########################################
 # Used Winapi structs
 ########################################
@@ -78,6 +81,15 @@ class BITMAPINFOHEADER(Structure):
         ("biYPelsPerMeter", LONG),
         ("biClrUsed", DWORD),
         ("biClrImportant", DWORD)
+    ]
+
+class MINMAXINFO(Structure):
+    _fields_ = [
+        ("ptReserved", POINT),
+        ("ptMaxSize", POINT),
+        ("ptMaxPosition", POINT),
+        ("ptMinTrackSize", POINT),
+        ("ptMaxTrackSize", POINT),
     ]
 
 ########################################
@@ -140,6 +152,7 @@ SPI_GETWORKAREA = 48
 SRCCOPY = 13369376
 WM_CLOSE = 16
 WM_DROPFILES = 563
+WM_GETMINMAXINFO = 36
 WM_PAINT = 15
 WM_QUIT = 18
 WS_OVERLAPPEDWINDOW = 13565952
@@ -206,6 +219,11 @@ class WinImageShow():
                 return _on_WM_DROPFILES(hwnd, wparam, lparam)
             elif msg == WM_CLOSE:
                 user32.PostMessageW(self.hwnd, WM_QUIT, 0, 0)
+            elif msg == WM_GETMINMAXINFO:
+                mmi = cast(lparam, POINTER(MINMAXINFO))
+                mmi.contents.ptMinTrackSize = POINT(MIN_WIN_SIZE, MIN_WIN_SIZE)
+                return 0
+
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
         wndclass = WNDCLASSEX()
@@ -251,6 +269,7 @@ class WinImageShow():
             else:
                 win_width = rc_desktop.right
                 win_height = round(win_width / desktop_ratio)
+
         x = (rc_desktop.right - win_width) // 2 + 16
         y = (rc_desktop.bottom - win_height) // 2
         return x, y, win_width, win_height
