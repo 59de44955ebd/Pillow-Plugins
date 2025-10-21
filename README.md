@@ -144,17 +144,18 @@ img.show()
 
 ## 10. [MagickImagePlugin](/MagickImagePlugin.py)
 
-This simple plugin only makes sense for users that have [ImageMagick](https://imagemagick.org/) (magick.exe) already installed on the local computer. It adds read and write support for some additional image file formats:
+This simple plugin only makes sense for users that have [ImageMagick](https://imagemagick.org/) (magick.exe) already installed on the local computer anyway. It adds read and write support for some additional image file formats:
 
-- EXR
-- HEIF/HEIC
-- JNG
-- MNG
+- EXR (read + write)
+- HEIF/HEIC (read + write)
+- JNG (read + write)
+- MNG (read + write; no animation)
 - PCD (write only - read support already provided by Pillow)
-- PICT
-- PSB
+- PICT (read + write)
+- PSB (read + write)
 - PSD (write only - read support already provided by Pillow)
-- WPG (read only)
+- SVG (read + write; saved SVG files contain image as embedded PNG)
+- WPG (Word Perfect Graphics; read only)
 
 Usage:
 ```python
