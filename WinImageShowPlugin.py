@@ -300,7 +300,7 @@ class WinImageViewer():
         gdi32.SetDIBits(
             None, h_bitmap,
             0, im.height,
-            data[sizeof(BITMAPINFOHEADER):],  # Skip the BITMAPINFOHEADER (40 bytes)
+            data[sizeof(BITMAPINFOHEADER) + 4 * bmih.contents.biClrUsed:],  # Skip the BITMAPINFOHEADER (40 bytes)
             bmih,
             DIB_RGB_COLORS
         )
