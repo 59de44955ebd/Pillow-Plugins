@@ -1,4 +1,4 @@
-# Pillow-Plugins - 8 plugins for Pillow (Python)
+# Pillow-Plugins - 9 simple plugins for Pillow (Python)
 
 ## 1. [DcrawImagePlugin](/DcrawImagePlugin)
 
@@ -126,3 +126,18 @@ img.show()  # Blocks code execution until viewer window is closed
 ```
 The result in Windows 11   
 ![](screenshots/show.jpg)
+
+## 9. [BpgImagePlugin](/BpgImagePlugin)
+
+Read and write support for the [Better Portable Graphics (BPG)](https://en.wikipedia.org/wiki/Better_Portable_Graphics) file format.
+
+Requires [bpgdec and bpgenc](https://bellard.org/bpg/) (binaries for Windows are included).
+
+Usage:
+```python
+from PIL import Image
+import BpgImagePlugin
+
+img = Image.open("test.bpg")
+img.show()
+```
