@@ -33,6 +33,8 @@ MIN_WIN_SIZE = 240
 ########################################
 # Used Winapi structs
 ########################################
+
+# https://learn.microsoft.com/sr-latn-rs/windows/win32/api/winuser/ns-winuser-paintstruct
 class PAINTSTRUCT(Structure):
     _fields_ = [
         ("hdc",            HDC),
@@ -46,9 +48,10 @@ class PAINTSTRUCT(Structure):
 LONG_PTR = c_longlong  # for x64 only!
 WNDPROC = WINFUNCTYPE(LONG_PTR, HWND, UINT, WPARAM, LPARAM)
 
-class WNDCLASSEX(Structure):
+# https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-wndclassexw
+class WNDCLASSEXW(Structure):
     def __init__(self, *args, **kwargs):
-        super(WNDCLASSEX, self).__init__(*args, **kwargs)
+        super(WNDCLASSEXW, self).__init__(*args, **kwargs)
         self.cbSize = sizeof(self)
     _fields_ = [
         ("cbSize",          UINT),
@@ -84,6 +87,9 @@ class BITMAPINFOHEADER(Structure):
         ("biClrImportant", DWORD)
     ]
 
+LPBITMAPINFOHEADER = POINTER(BITMAPINFOHEADER)
+
+# https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-minmaxinfo
 class MINMAXINFO(Structure):
     _fields_ = [
         ("ptReserved", POINT),
@@ -168,8 +174,9 @@ class WinImageViewer():
         self.h_bitmap = self._image_to_hbitmap(image)
         self.image_ratio = image.width / image.height
 
-        # Show image centered and resized to window while keeping its aspect ratio
         def _on_WM_PAINT(hwnd, wparam, lparam):
+            """ Shows image centered and resized to window while keeping its aspect ratio. """
+
             rc = RECT()
             user32.GetClientRect(hwnd, byref(rc))
             width, height = rc.right, rc.bottom
@@ -228,7 +235,7 @@ class WinImageViewer():
 
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
-        wndclass = WNDCLASSEX()
+        wndclass = WNDCLASSEXW()
         wndclass.lpfnWndProc = WNDPROC(_window_proc_callback)
         wndclass.style = CS_VREDRAW | CS_HREDRAW
         wndclass.lpszClassName = "WinImageViewer"
@@ -283,58 +290,20 @@ class WinImageViewer():
             im = im.convert(im.mode[:-1])
         elif im.mode not in ("RGB", "RGBA", "L", "1", "P"):
             im = im.convert("RGB")
-        pal_size = 0
-        if im.mode == "1":
-            pal_size = 8
-            pal = [0, 0, 0, 0, 255, 255, 255, 0]
-            bpp = 1
-        elif im.mode == "L":
-            pal_size = 1024
-            pal = [0] * 1024
-            for i in range(256):
-                pal[4 * i:4 * i + 3] = i, i, i
-            bpp = 8
-        elif im.mode == "P":
-            pal = im.getpalette("BGRX")
-            pal_size = len(pal)
-            bpp = 8
-        elif im.mode == "RGB":
-            bpp = 24
-        elif im.mode == "RGBA":
-            bpp = 32
 
         f = io.BytesIO()
         im.save(f, "DIB")
-        biClrUsed = pal_size // 4
+        data = f.getvalue()
 
-        class BITMAPINFO(Structure):
-            _pack_ = 1
-            _fields_ = [
-                ("bmiHeader", BITMAPINFOHEADER),
-                ("bmiColors", c_ubyte * pal_size),
-            ]
-
-        bmi = BITMAPINFO()
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER)
-        bmi.bmiHeader.biWidth = im.width
-        bmi.bmiHeader.biHeight = im.height
-        bmi.bmiHeader.biPlanes = 1
-        bmi.bmiHeader.biBitCount = bpp
-        bmi.bmiHeader.biCompression = BI_RGB
-        bmi.bmiHeader.biSizeImage = ((((im.width * bmi.bmiHeader.biBitCount) + 31) & ~31) >> 3) * im.height
-        bmi.bmiHeader.biClrUsed = biClrUsed
-        if biClrUsed:
-            bmi.bmiColors = (c_ubyte * pal_size)(*pal)
-
-        hdc = gdi32.CreateCompatibleDC(0)
-        h_bitmap = gdi32.CreateDIBSection(None, byref(bmi), DIB_RGB_COLORS, None, None, 0)
+        bmih = cast(data, LPBITMAPINFOHEADER)
+        h_bitmap = gdi32.CreateDIBSection(None, bmih, DIB_RGB_COLORS, None, None, 0)
         gdi32.SetDIBits(
-            0, h_bitmap, 0, im.height,
-            f.getvalue()[sizeof(BITMAPINFOHEADER) + pal_size:],
-            byref(bmi),
+            None, h_bitmap,
+            0, im.height,
+            data[sizeof(BITMAPINFOHEADER):],  # Skip the BITMAPINFOHEADER (40 bytes)
+            bmih,
             DIB_RGB_COLORS
         )
-        gdi32.DeleteDC(hdc)
         return h_bitmap
 
 
@@ -355,7 +324,6 @@ if sys.platform == "win32":
     def _show(image, **options):
         WinImageViewer().show(image, **options)
     setattr(Image, "_show", _show)
-
 
 if __name__ == "__main__":
     im = Image.open("_test_files/test.png")
