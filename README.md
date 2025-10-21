@@ -1,4 +1,4 @@
-# Pillow-Plugins - 9 simple plugins for Pillow (Python)
+# Pillow-Plugins - 10 simple plugins for Pillow (Python)
 
 ## 1. [DcrawImagePlugin](/DcrawImagePlugin)
 
@@ -139,5 +139,31 @@ from PIL import Image
 import BpgImagePlugin
 
 img = Image.open("test.bpg")
+img.show()
+```
+
+## 10. [MagickImagePlugin](/MagickImagePlugin.py)
+
+This simple plugin only makes sense for users that have [ImageMagick](https://imagemagick.org/) (magick.exe) already installed on the local computer. It adds read and write support for some additional image file formats:
+
+- EXR
+- HEIF/HEIC
+- JNG
+- MNG
+- PCD (write only - read support already provided by Pillow)
+- PICT
+- PSB
+- PSD (write only - read support already provided by Pillow)
+- WPG (read only)
+
+Usage:
+```python
+from PIL import Image
+import MagickImagePlugin
+
+# If not in PATH:
+# MagickImagePlugin.MAGICK_BIN = "D:\\ImageMagick\\magick.exe"
+
+img = Image.open("test.heif")
 img.show()
 ```
