@@ -1,3 +1,4 @@
+from __future__ import annotations
 __all__ = []
 
 """
@@ -166,13 +167,43 @@ WS_OVERLAPPEDWINDOW = 13565952
 WS_VISIBLE = 268435456
 
 
+def image_to_hbitmap(img: Image.Image) -> HBITMAP:
+    if img.mode in ("LA", "PA"):
+        img = img.convert(img.mode[:-1])
+    elif img.mode not in ("RGB", "RGBA", "L", "1", "P"):
+        img = img.convert("RGB")
+    f = io.BytesIO()
+    img.save(f, "DIB")
+    data = f.getvalue()
+    bmih = cast(data, LPBITMAPINFOHEADER)
+    hbitmap = gdi32.CreateDIBSection(None, bmih, DIB_RGB_COLORS, None, None, 0)
+    gdi32.SetDIBits(
+        None, hbitmap,
+        0, img.height,
+        data[sizeof(BITMAPINFOHEADER) + 4 * bmih.contents.biClrUsed:],
+        bmih,
+        DIB_RGB_COLORS
+    )
+    return hbitmap
+
+
+class HBitmapObj():
+    """ Minimal wrapper that takes care of releasing HBITMAP from memory """
+
+    def __init__(self, hbitmap: HBITMAP):
+        self.value = hbitmap
+
+    def __del__(self):
+        gdi32.DeleteObject(self.value)
+
+
 class WinImageViewer():
 
-    def show(self, image, title = None, **options):
+    def show(self, img: Image.Image, title: str = None, **options) -> bool:
 
-        self.image = image
-        self.h_bitmap = self._image_to_hbitmap(image)
-        self.image_ratio = image.width / image.height
+        self.img = img
+        self.img_ratio = img.width / img.height
+        self.hbitmap_obj = HBitmapObj(image_to_hbitmap(img))
 
         def _on_WM_PAINT(hwnd, wparam, lparam):
             """ Shows image centered and resized to window while keeping its aspect ratio. """
@@ -180,24 +211,24 @@ class WinImageViewer():
             rc = RECT()
             user32.GetClientRect(hwnd, byref(rc))
             width, height = rc.right, rc.bottom
-            if width / height > self.image_ratio:
-                dest_width = round(height * self.image_ratio)
+            if width / height > self.img_ratio:
+                dest_width = round(height * self.img_ratio)
                 dest_height = height
                 x = (width - dest_width) // 2
                 y = 0
             else:
                 dest_width = width
-                dest_height = round(width / self.image_ratio)
+                dest_height = round(width / self.img_ratio)
                 x = 0
                 y = (height - dest_height) // 2
             ps = PAINTSTRUCT()
             hdc = user32.BeginPaint(hwnd, byref(ps))
             gdi32.SetStretchBltMode(hdc, HALFTONE)
             hdc_mem = gdi32.CreateCompatibleDC(hdc)
-            gdi32.SelectObject(hdc_mem, self.h_bitmap)
+            gdi32.SelectObject(hdc_mem, self.hbitmap_obj.value)
             gdi32.StretchBlt(
                 hdc, x, y, dest_width, dest_height,  # dest
-                hdc_mem, 0, 0, self.image.width, self.image.height,  # scr
+                hdc_mem, 0, 0, self.img.width, self.img.height,  # scr
                 SRCCOPY
             )
             gdi32.DeleteDC(hdc_mem)
@@ -210,20 +241,18 @@ class WinImageViewer():
             shell32.DragFinish(wparam)
             filename = file_buffer[:].split("\0", 1)[0]
             try:
-                im = Image.open(filename)
-                gdi32.DeleteObject(self.h_bitmap)
-                self.h_bitmap = self._image_to_hbitmap(im)
-                self.image = im
-                self.image_ratio = im.width / im.height
-                user32.SetWindowTextW(hwnd, f"{filename} - {im.mode} - {im.width} x {im.height}")
-                user32.SetWindowPos(hwnd, 0, *self._get_win_rect_for_image(im), 0)
+                self.img = Image.open(filename)
+                self.img_ratio = self.img.width / self.img.height
+                self.hbitmap_obj = HBitmapObj(image_to_hbitmap(self.img))
+                user32.SetWindowTextW(hwnd, f"{filename} - {self.img.mode} - {self.img.width} x {self.img.height}")
+                user32.SetWindowPos(hwnd, 0, *self._get_win_rect_for_image(), 0)
                 user32.RedrawWindow(hwnd, 0, 0, RDW_ERASE | RDW_INVALIDATE)
             finally:
                 return 0
 
         def _window_proc_callback(hwnd, msg, wparam, lparam):
             if msg == WM_CLOSE:
-                user32.PostMessageW(self.hwnd, WM_QUIT, 0, 0)
+                user32.PostMessageW(hwnd, WM_QUIT, 0, 0)
             elif msg == WM_DROPFILES:
                 return _on_WM_DROPFILES(hwnd, wparam, lparam)
             elif msg == WM_GETMINMAXINFO:
@@ -232,7 +261,6 @@ class WinImageViewer():
                 return 0
             elif msg == WM_PAINT:
                 return _on_WM_PAINT(hwnd, wparam, lparam)
-
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
         wndclass = WNDCLASSEXW()
@@ -244,25 +272,24 @@ class WinImageViewer():
         wndclass.hIcon = user32.LoadIconW(kernel32.GetModuleHandleW(None), LPCWSTR(1))  # Python icon
         wndclass.hIconSm = wndclass.hIcon
         user32.RegisterClassExW(byref(wndclass))
-        self.hwnd = user32.CreateWindowExW(
+        hwnd = user32.CreateWindowExW(
             0,
             wndclass.lpszClassName,
-            title or f"{getattr(image, 'filename', 'Pillow Image')} - {image.mode} - {image.width} x {image.height}",
+            title or f"{getattr(self.img, 'filename', 'Pillow Image')} - {self.img.mode} - {self.img.width} x {self.img.height}",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            *self._get_win_rect_for_image(image),
+            *self._get_win_rect_for_image(),
             None, None, None, None
         )
-        shell32.DragAcceptFiles(self.hwnd, True)
+        shell32.DragAcceptFiles(hwnd, True)
         msg = MSG()
         while user32.GetMessageW(byref(msg), 0, 0, 0) > 0:
             user32.TranslateMessage(byref(msg))
             user32.DispatchMessageW(byref(msg))
-        user32.DestroyWindow(self.hwnd)
-        gdi32.DeleteObject(self.h_bitmap)
+        user32.DestroyWindow(hwnd)
 
         return True
 
-    def _get_win_rect_for_image(self, im):
+    def _get_win_rect_for_image(self) -> tuple[int, int, int, int]:
         """
         Show window centered on screen and never bigger than
         the actual work area (desktop minus taskbar)
@@ -271,40 +298,18 @@ class WinImageViewer():
         user32.SystemParametersInfoA(SPI_GETWORKAREA, 0, byref(rc_desktop), 0)
         rc_desktop.right -= 32  # Windows 11 DWM fix
         caption_height = user32.GetSystemMetrics(SM_CYCAPTION)
-        win_width, win_height = im.width, im.height + caption_height
+        win_width, win_height = self.img.width, self.img.height + caption_height
         if win_width > rc_desktop.right or win_height > rc_desktop.bottom:
             desktop_ratio = rc_desktop.right / (rc_desktop.bottom - caption_height)
-            if desktop_ratio > im_ratio:
+            if desktop_ratio > self.img_ratio:
                 win_height = rc_desktop.bottom
                 win_width = round(win_height * desktop_ratio)
             else:
                 win_width = rc_desktop.right
                 win_height = round(win_width / desktop_ratio)
-
         x = (rc_desktop.right - win_width) // 2 + 16
         y = (rc_desktop.bottom - win_height) // 2
         return x, y, win_width, win_height
-
-    def _image_to_hbitmap(self, im):
-        if im.mode in ("LA", "PA"):
-            im = im.convert(im.mode[:-1])
-        elif im.mode not in ("RGB", "RGBA", "L", "1", "P"):
-            im = im.convert("RGB")
-
-        f = io.BytesIO()
-        im.save(f, "DIB")
-        data = f.getvalue()
-
-        bmih = cast(data, LPBITMAPINFOHEADER)
-        h_bitmap = gdi32.CreateDIBSection(None, bmih, DIB_RGB_COLORS, None, None, 0)
-        gdi32.SetDIBits(
-            None, h_bitmap,
-            0, im.height,
-            data[sizeof(BITMAPINFOHEADER) + 4 * bmih.contents.biClrUsed:],
-            bmih,
-            DIB_RGB_COLORS
-        )
-        return h_bitmap
 
 
 if sys.platform == "win32":
@@ -321,10 +326,10 @@ if sys.platform == "win32":
     # Overwriting Image.show() like this instead,
     # without importing ImageShow, is lightning fast.
     ########################################
-    def _show(image, **options):
-        WinImageViewer().show(image, **options)
+    def _show(img: Image.Image, **options) -> bool:
+        return WinImageViewer().show(img, **options)
     setattr(Image, "_show", _show)
 
 if __name__ == "__main__":
-    im = Image.open("_test_files/test.png")
-    im.show()
+    img = Image.open("_test_files/test.png")
+    img.show()
